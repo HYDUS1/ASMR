@@ -1,0 +1,60 @@
+name: Build APK from zip
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          unzip -q SliceAndSquish.zip
+          ls SliceAndSquish
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SECRET_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          KS="$RUNNER_TEMP/release.jks"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$KS"
+            echo "KEYSTORE_PASSWORD=$SECRET_KS_PASS" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$SECRET_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$SECRET_KEY_PASS" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -v -keystore "$KS" -storetype PKCS12 \
+              -alias slicekey -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass slicegame123 -keypass slicegame123 \
+              -dname "CN=Slice Squish, OU=Games, O=Satisfying, C=US"
+            echo "KEYSTORE_PASSWORD=slicegame123" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=slicekey" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=slicegame123" >> "$GITHUB_ENV"
+          fi
+          echo "KEYSTORE_PATH=$KS" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        working-directory: SliceAndSquish
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slice-Squish-ASMR-release-apk
+          path: SliceAndSquish/app/build/outputs/apk/release/*.apk
+          
